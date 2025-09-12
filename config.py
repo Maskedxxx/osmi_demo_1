@@ -1,6 +1,11 @@
 import logging
+import os
+from dotenv import load_dotenv
 
-API_TOKEN = "8439840418:AAGqbsaURh9-AzbvxChH9xjh5QPyIT4eE08"
+# Загружаем переменные окружения из .env файла
+load_dotenv()
+
+API_TOKEN = os.getenv("BOT_TOKEN")
 
 # Настройка базового логирования
 logging.basicConfig(
