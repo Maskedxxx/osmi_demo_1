@@ -6,6 +6,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 API_TOKEN = os.getenv("BOT_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+# Настройки для семантического анализа страниц
+SEMANTIC_SCORE_THRESHOLD = 0.5  # Минимальный порог схожести для отбора страниц
+SEMANTIC_TOP_PAGES_LIMIT = 10   # Максимальное количество страниц для анализа
 
 # Настройка базового логирования
 logging.basicConfig(
