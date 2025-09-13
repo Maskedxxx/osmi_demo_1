@@ -1,4 +1,7 @@
 aiogram==3.22.0
 python-dotenv==1.0.1
 unstructured[pdf]
-pydantic==2.10.2
+fastapi
+uvicorn
+python-multipart
+aiohttp
