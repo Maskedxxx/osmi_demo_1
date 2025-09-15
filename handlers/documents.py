@@ -6,19 +6,28 @@ from datetime import datetime
 from aiogram import types, Bot
 
 from services.ocr_service import process_pdf_ocr, save_ocr_result
-from config import logger
+from services.semantic_page_filter import analyze_document_from_json
+from services.defect_analyzer import analyze_document_from_json_with_excel
+from config import logger, DEFECT_SEARCH_UTTERANCES, DEFECT_ANALYSIS_SCORE_THRESHOLD, DEFECT_ANALYSIS_TOP_PAGES
 
 
 async def handle_upload_document(message: types.Message):
     """Обработчик кнопки 'Загрузить документ'"""
     await message.answer(
-        "Пожалуйста, отправьте мне документ (файл) в формате PDF.\n\n"
-        "📎 Вы можете:\n"
-        "• Загрузить файл напрямую (до 20 МБ)\n"
-        "• Отправить ссылку на файл из облака:\n"
+        "🔍 **Анализ дефектов строительных работ**\n\n"
+        "Отправьте мне PDF документ экспертизы или технического отчета, "
+        "и я выполню полный анализ:\n\n"
+        "📄 **1. OCR обработка** - извлечение текста\n"
+        "🎯 **2. Семантический поиск** - поиск страниц с дефектами\n"
+        "🤖 **3. LLM анализ** - структурирование информации\n"
+        "📊 **4. Excel отчет** - готовая таблица дефектов\n\n"
+        "💡 **Поддерживаются:**\n"
+        "• PDF файлы (до 20 МБ)\n"
+        "• Ссылки на файлы из облачных хранилищ:\n"
         "  - Google Drive\n"
         "  - Dropbox\n"
-        "  - Яндекс.Диск"
+        "  - Яндекс.Диск",
+        parse_mode="Markdown"
     )
 
 
@@ -204,3 +213,161 @@ async def handle_url_document(message: types.Message, bot: Bot):
         await processing_message.edit_text(
             f"❌ Произошла ошибка при обработке документа по ссылке:\n{str(e)}"
         )
+
+
+async def handle_analyze_defects_command(message: types.Message):
+    """Обработчик команды /analyze_defects"""
+    await message.answer(
+        "🔍 **Анализ дефектов строительных работ**\n\n"
+        "Отправьте мне PDF документ экспертизы или технического отчета, "
+        "и я выполню полный анализ:\n\n"
+        "📄 **1. OCR обработка** - извлечение текста\n"
+        "🎯 **2. Семантический поиск** - поиск страниц с дефектами\n"
+        "🤖 **3. LLM анализ** - структурирование информации\n"
+        "📊 **4. Excel отчет** - готовая таблица дефектов\n\n"
+        "💡 Поддерживаются:\n"
+        "• PDF файлы (до 20 МБ)\n"
+        "• Ссылки на файлы из облачных хранилищ",
+        parse_mode="Markdown"
+    )
+
+
+async def handle_full_defect_analysis(message: types.Message, bot: Bot):
+    """
+    Полный пайплайн анализа дефектов:
+    1. OCR обработка PDF
+    2. Семантический поиск релевантных страниц
+    3. LLM анализ дефектов
+    4. Создание Excel отчета
+    """
+    
+    # Определяем тип входных данных (файл или ссылка)
+    is_file = bool(message.document)
+    is_url = bool(message.text and ("http" in message.text or "drive.google.com" in message.text))
+    
+    if not (is_file or is_url):
+        await message.answer(
+            "❌ Для анализа дефектов отправьте PDF файл или ссылку на документ.\n"
+            "Используйте команду /analyze_defects для получения инструкций."
+        )
+        return
+    
+    # Проверка типа файла для загруженных документов
+    if is_file and not message.document.file_name.lower().endswith('.pdf'):
+        await message.answer("❌ Пожалуйста, отправьте файл в формате PDF.")
+        return
+    
+    logger.info(f"Начинаю полный анализ дефектов для пользователя {message.from_user.id}")
+    
+    # Сообщение о начале процесса
+    progress_message = await message.answer("🚀 **Запускаю полный анализ дефектов...**", parse_mode="Markdown")
+    
+    temp_path = None
+    
+    try:
+        # ========== ЭТАП 1: Загрузка и OCR обработка ==========
+        await progress_message.edit_text("📄 **Этап 1/4:** Загрузка и OCR обработка документа...", parse_mode="Markdown")
+        
+        if is_file:
+            # Скачиваем загруженный файл
+            file_info = await bot.get_file(message.document.file_id)
+            
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+                temp_path = temp_file.name
+                await bot.download_file(file_info.file_path, temp_file)
+            
+            original_filename = message.document.file_name
+            logger.info(f"Загружен файл: {original_filename}")
+            
+        else:  # is_url
+            # Скачиваем файл по ссылке
+            temp_path = await download_file_from_url(message.text.strip())
+            original_filename = f"document_from_url_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+            logger.info(f"Скачан файл по ссылке: {message.text.strip()}")
+        
+        # Выполняем OCR обработку
+        document_data, processing_time = await process_pdf_ocr(temp_path, original_filename)
+        
+        # Сохраняем OCR результат
+        json_file, txt_file = await save_ocr_result(document_data)
+        
+        logger.info(f"OCR завершен: {document_data.total_pages} страниц за {processing_time:.1f}с")
+        
+        # ========== ЭТАП 2: Семантический поиск релевантных страниц ==========
+        await progress_message.edit_text("🎯 **Этап 2/4:** Поиск страниц с описанием дефектов...", parse_mode="Markdown")
+        
+        relevant_pages = await analyze_document_from_json(
+            json_path=json_file,
+            utterances=DEFECT_SEARCH_UTTERANCES,
+            score_threshold=DEFECT_ANALYSIS_SCORE_THRESHOLD,
+            top_limit=DEFECT_ANALYSIS_TOP_PAGES
+        )
+        
+        if not relevant_pages:
+            await progress_message.edit_text(
+                "⚠️ **Анализ завершен с предупреждением**\n\n"
+                "В документе не найдены страницы с описанием дефектов строительных работ.\n"
+                f"📄 Обработано страниц: {document_data.total_pages}\n"
+                f"🔍 Порог схожести: {DEFECT_ANALYSIS_SCORE_THRESHOLD}\n\n"
+                "💡 Возможно, документ не содержит технических описаний дефектов или "
+                "использует нестандартную терминологию.",
+                parse_mode="Markdown"
+            )
+            return
+        
+        logger.info(f"Найдено релевантных страниц: {len(relevant_pages)} - {relevant_pages}")
+        
+        # ========== ЭТАП 3: LLM анализ и создание Excel ==========
+        await progress_message.edit_text("🤖 **Этап 3/4:** Анализ дефектов через LLM и создание Excel...", parse_mode="Markdown")
+        
+        excel_path = await analyze_document_from_json_with_excel(
+            json_path=json_file,
+            relevant_page_numbers=relevant_pages,
+            output_path=None  # Автоматическое имя файла
+        )
+        
+        logger.info(f"Excel отчет создан: {excel_path}")
+        
+        # ========== ЭТАП 4: Отправка результата пользователю ==========
+        await progress_message.edit_text("📊 **Этап 4/4:** Подготовка результата...", parse_mode="Markdown")
+        
+        # Отправляем Excel файл пользователю
+        with open(excel_path, 'rb') as excel_file:
+            excel_document = types.BufferedInputFile(
+                excel_file.read(),
+                filename=f"defect_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            )
+            
+            await message.answer_document(
+                excel_document,
+                caption=(
+                    f"✅ **Анализ дефектов завершен!**\n\n"
+                    f"📄 **Документ:** {document_data.filename}\n"
+                    f"📖 **Страниц обработано:** {document_data.total_pages}\n"
+                    f"🎯 **Найдено релевантных:** {len(relevant_pages)} страниц\n"
+                    f"⏱️ **Время OCR:** {processing_time:.1f} сек\n\n"
+                    f"📋 **Результат:** Excel таблица с структурированными данными о дефектах"
+                ),
+                parse_mode="Markdown"
+            )
+        
+        # Удаляем сообщение о прогрессе
+        await progress_message.delete()
+        
+        logger.info(f"✅ Полный анализ дефектов завершен для {message.from_user.id}")
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка в полном анализе дефектов: {e}")
+        
+        await progress_message.edit_text(
+            f"❌ **Ошибка при анализе дефектов**\n\n"
+            f"Произошла ошибка: {str(e)}\n\n"
+            f"Попробуйте еще раз или обратитесь в поддержку.",
+            parse_mode="Markdown"
+        )
+        
+    finally:
+        # Очистка временных файлов
+        if temp_path and os.path.exists(temp_path):
+            os.unlink(temp_path)
+            logger.info(f"Временный файл удален: {temp_path}")

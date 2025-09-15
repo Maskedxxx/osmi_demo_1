@@ -71,3 +71,14 @@ class DocumentData(BaseModel):
                 if element.category == category:
                     elements.append(element)
         return elements
+
+
+class DefectAnalysisResult(BaseModel):
+    """
+    Результат LLM анализа дефекта для заполнения формы
+    """
+    source_text: str = Field(..., description="Исходный текст из АПО/экспертизы")
+    room: str = Field(..., description="Помещение (например: Коридор, Кухня, Ванная)")  
+    location: str = Field(..., description="Локализация (например: Пол, Потолок, Стена)")
+    defect: str = Field(..., description="Описание дефекта")
+    work_type: str = Field(..., description="Наименование работы (например: Отделочные работы)")
