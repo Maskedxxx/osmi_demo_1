@@ -93,12 +93,12 @@ async def process_pdf_ocr(pdf_path: str, original_filename: str, max_pages: Opti
         # Вычисляем время обработки
         processing_time = time.time() - start_time
         
-        logger.info(f"✅ Успешно завершена OCR обработка документа: {document.filename}")
-        logger.info(f"⏱️ Время обработки: {processing_time:.2f} секунд")
+        logger.info(f"Успешно завершена OCR обработка документа: {document.filename}")
+        logger.info(f"Время обработки: {processing_time:.2f} секунд")
         return document, processing_time
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при OCR обработке файла {pdf_path}: {e}")
+        logger.error(f"Ошибка при OCR обработке файла {pdf_path}: {e}")
         raise
 
 
@@ -134,9 +134,9 @@ async def save_ocr_result(document: DocumentData, result_folder: str = "result")
         with open(txt_file, "w", encoding="utf-8") as f:
             f.write(document.get_all_text())
         
-        logger.info(f"✅ Результаты OCR сохранены: {json_file} и {txt_file}")
+        logger.info(f"Результаты OCR сохранены: {json_file} и {txt_file}")
         return str(json_file), str(txt_file)
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при сохранении результата OCR: {e}")
+        logger.error(f"Ошибка при сохранении результата OCR: {e}")
         raise

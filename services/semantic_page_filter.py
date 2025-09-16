@@ -71,11 +71,11 @@ class SemanticPageFilter:
                 auto_sync="local"
             )
             
-            logger.info(f"✅ Семантический роутер настроен с порогом схожести: {self.score_threshold}")
+            logger.info(f"Семантический роутер настроен с порогом схожести: {self.score_threshold}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при настройке семантического роутера: {e}")
+            logger.error(f"Ошибка при настройке семантического роутера: {e}")
             return False
     
     async def analyze_document_pages(self, document: DocumentData) -> List[PageAnalysisResult]:
@@ -145,11 +145,11 @@ class SemanticPageFilter:
                     import asyncio
                     await asyncio.sleep(0.1)
             
-            logger.info(f"✅ Завершен анализ документа, обработано страниц: {len(results)}")
+            logger.info(f"Завершен анализ документа, обработано страниц: {len(results)}")
             return results
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при анализе документа: {e}")
+            logger.error(f"Ошибка при анализе документа: {e}")
             raise
     
     def filter_relevant_pages(self, analysis_results: List[PageAnalysisResult], 
@@ -213,11 +213,11 @@ class SemanticPageFilter:
             # Фильтруем и сортируем релевантные страницы
             relevant_page_numbers = self.filter_relevant_pages(analysis_results, top_limit)
             
-            logger.info(f"✅ Успешно получены релевантные страницы: {relevant_page_numbers}")
+            logger.info(f"Успешно получены релевантные страницы: {relevant_page_numbers}")
             return relevant_page_numbers
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при получении релевантных страниц: {e}")
+            logger.error(f"Ошибка при получении релевантных страниц: {e}")
             raise
 
 
@@ -238,11 +238,11 @@ async def load_document_from_json(json_path: str) -> DocumentData:
             data = json.load(f)
         
         document = DocumentData(**data)
-        logger.info(f"✅ Документ загружен: {document.filename}, страниц: {document.total_pages}")
+        logger.info(f"Документ загружен: {document.filename}, страниц: {document.total_pages}")
         return document
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при загрузке документа из JSON: {e}")
+        logger.error(f"Ошибка при загрузке документа из JSON: {e}")
         raise
 
 

@@ -54,11 +54,11 @@ EXPERT_DEFECT_ANALYSIS_PROMPT = """Вы - опытный эксперт по с�
    - Включите ссылку на норматив если есть
 
    room - тип помещения где обнаружен дефект:
-   - Гостиная, Спальня, Детская, Кабинет, Кухня, Ванная, Туалет, Коридор, Прихожая, Балкон, Лоджия, Кладовая, Гардеробная
-   - Если не указано: "Жилое помещение"
+   - "Коридор", "Комната", "Санузел"
+   - Если не указано: "Комната"
 
    location - локализация дефекта согласно разделу экспертизы:
-   - Пол, Потолок, Стена, Межкомнатная дверь, Входная дверь, Окно, Оконный блок, Сантехника, Электрика, Отопление, Плитка, Покрытие, Штукатурка, Краска
+   - "Пол", "Потолок", "Стена", "Межкомнатная дверь", "Входная дверь", "Оконный блок"
 
    defect - полное техническое описание дефекта:
    - Скопируйте описание из экспертизы с сохранением терминологии
@@ -68,7 +68,7 @@ EXPERT_DEFECT_ANALYSIS_PROMPT = """Вы - опытный эксперт по с�
    - НЕ сокращайте техническое описание
 
    work_type - тип работ для устранения дефекта:
-   - Отделочные работы, Сантехнические работы, Электромонтажные работы, Плиточные работы, Малярные работы, Штукатурные работы, Демонтажные работы
+   - Отделочные работы, Сантехнические работы, Электромонтажные работы
 
 ВАЖНО:
 - НЕ ПРОПУСКАЙТЕ недостатки из-за того что они кажутся мелкими
@@ -99,11 +99,11 @@ class DefectAnalyzer:
                 return False
                 
             self.client = OpenAI(api_key=OPENAI_API_KEY)
-            logger.info("✅ OpenAI клиент настроен успешно")
+            logger.info("OpenAI клиент настроен успешно")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при настройке OpenAI клиента: {e}")
+            logger.error(f"Ошибка при настройке OpenAI клиента: {e}")
             return False
     
     async def analyze_combined_text(self, combined_text: str) -> DefectAnalysisListResult:
@@ -151,11 +151,11 @@ class DefectAnalyzer:
 
             result = completion.choices[0].message.parsed
             
-            logger.info(f"✅ Анализ завершен: найдено {len(result.defects)} дефектов")
+            logger.info(f"Анализ завершен: найдено {len(result.defects)} дефектов")
             return result
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при анализе текста через LLM: {e}")
+            logger.error(f"Ошибка при анализе текста через LLM: {e}")
             raise
     
     def create_excel_report(self, analysis_results: List[DefectAnalysisResult], 
@@ -195,11 +195,11 @@ class DefectAnalyzer:
             # Сохраняем в Excel с индексом начиная с 1
             df.to_excel(output_path, index=False, sheet_name="Анализ дефектов")
             
-            logger.info(f"✅ Excel отчет создан: {output_path} ({len(analysis_results)} записей)")
+            logger.info(f"Excel отчет создан: {output_path} ({len(analysis_results)} записей)")
             return output_path
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при создании Excel отчета: {e}")
+            logger.error(f"Ошибка при создании Excel отчета: {e}")
             raise
     
     async def process_combined_pages(self, page_texts: List[str]) -> List[DefectAnalysisResult]:
@@ -221,11 +221,11 @@ class DefectAnalyzer:
         
         try:
             result = await self.analyze_combined_text(combined_text)
-            logger.info(f"✅ Обработка завершена: найдено {len(result.defects)} дефектов")
+            logger.info(f"Обработка завершена: найдено {len(result.defects)} дефектов")
             return result.defects
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при обработке объединенного текста: {e}")
+            logger.error(f"Ошибка при обработке объединенного текста: {e}")
             raise
     
     async def analyze_document_defects(self, document: DocumentData, 
@@ -270,11 +270,11 @@ class DefectAnalyzer:
             # Создаем Excel отчет
             excel_path = self.create_excel_report(analysis_results, output_path)
             
-            logger.info(f"✅ Анализ документа завершен: {excel_path}")
+            logger.info(f"Анализ документа завершен: {excel_path}")
             return excel_path
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при анализе документа: {e}")
+            logger.error(f"Ошибка при анализе документа: {e}")
             raise
 
 
@@ -300,7 +300,7 @@ async def analyze_document_from_json_with_excel(json_path: str,
             data = json.load(f)
         
         document = DocumentData(**data)
-        logger.info(f"✅ Документ загружен: {document.filename}, страниц: {document.total_pages}")
+        logger.info(f"Документ загружен: {document.filename}, страниц: {document.total_pages}")
         
         # Создаем анализатор и запускаем анализ
         analyzer = DefectAnalyzer()
@@ -313,7 +313,7 @@ async def analyze_document_from_json_with_excel(json_path: str,
         return excel_path
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при анализе документа из JSON: {e}")
+        logger.error(f"Ошибка при анализе документа из JSON: {e}")
         raise
 
 
@@ -348,9 +348,9 @@ async def analyze_vlm_cleaned_pages_with_excel(vlm_result: VLMCleaningResult,
         # Создаем Excel отчет
         excel_path = analyzer.create_excel_report(analysis_results, output_path)
         
-        logger.info(f"✅ Анализ VLM-данных завершен: {excel_path}")
+        logger.info(f"Анализ VLM-данных завершен: {excel_path}")
         return excel_path
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при анализе VLM-данных: {e}")
+        logger.error(f"Ошибка при анализе VLM-данных: {e}")
         raise
