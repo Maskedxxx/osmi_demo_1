@@ -14,8 +14,8 @@ from urllib.parse import parse_qs, urlparse
 import aiohttp
 
 from config import (
-    DEFECT_ANALYSIS_SCORE_THRESHOLD,
-    DEFECT_ANALYSIS_TOP_PAGES,
+    SEMANTIC_SCORE_THRESHOLD,
+    SEMANTIC_TOP_PAGES_LIMIT,
     DEFECT_SEARCH_UTTERANCES,
     logger,
 )
@@ -237,8 +237,8 @@ class DefectAnalysisPipeline:
         relevant_pages = await analyze_document_from_json(
             json_path=str(self.ocr_info.json_path),
             utterances=DEFECT_SEARCH_UTTERANCES,
-            score_threshold=DEFECT_ANALYSIS_SCORE_THRESHOLD,
-            top_limit=DEFECT_ANALYSIS_TOP_PAGES,
+            score_threshold=SEMANTIC_SCORE_THRESHOLD,
+            top_limit=SEMANTIC_TOP_PAGES_LIMIT,
         )
         duration = time.perf_counter() - start
 

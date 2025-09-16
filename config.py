@@ -8,9 +8,9 @@ load_dotenv()
 API_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
-# Настройки для семантического анализа страниц
-SEMANTIC_SCORE_THRESHOLD = 0.5  # Минимальный порог схожести для отбора страниц
-SEMANTIC_TOP_PAGES_LIMIT = 10   # Максимальное количество страниц для анализа
+# Настройки для семантического анализа дефектов
+SEMANTIC_SCORE_THRESHOLD = 0.5  # Порог схожести для отбора релевантных страниц  
+SEMANTIC_TOP_PAGES_LIMIT = 10    # Максимальное количество страниц для анализа
 
 # Utterances для поиска дефектов в строительных отчетах
 DEFECT_SEARCH_UTTERANCES = [
@@ -35,10 +35,6 @@ DEFECT_SEARCH_UTTERANCES = [
     "Сколы и повреждения керамической плитки в местах эксплуатации",
     "Нарушения в монтаже дверных и оконных конструкций"
 ]
-
-# Настройки для анализа дефектов
-DEFECT_ANALYSIS_SCORE_THRESHOLD = 0.5  # Порог для поиска дефектов (ниже чем обычный)
-DEFECT_ANALYSIS_TOP_PAGES = 8          # Количество страниц для анализа дефектов
 
 # Настройки для VLM обработки страниц
 VLM_MODEL = "gpt-4.1-mini"              # Модель для Vision Language Model
