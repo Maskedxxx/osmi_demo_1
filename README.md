@@ -1,214 +1,152 @@
-# OCR Telegram Bot
+# Анализ дефектов из PDF: Telegram‑бот с полным пайплайном
 
-Telegram бот для обработки PDF документов с помощью OCR (Optical Character Recognition) с использованием библиотеки Unstructured.
+Бот принимает PDF с экспертизой/АПО или ссылку на файл, извлекает текст (OCR), находит релевантные страницы семантически, анализирует дефекты через LLM и возвращает Excel‑отчет.
 
-## Обзор проекта
+## Что делает проект
 
-Бот получает PDF файлы от пользователей, обрабатывает их через OCR и возвращает структурированный текст. Использует современный стек технологий: aiogram 3.22.0 для работы с Telegram API и Unstructured для извлечения текста из документов.
+- Принимает PDF или ссылку (Google Drive/Dropbox/Яндекс.Диск).
+- OCR только текстовой части PDF без картинок/таблиц.
+- Семантически находит страницы с описанием дефектов.
+- LLM извлекает структурированные записи дефектов.
+- Генерирует Excel с результатами и отправляет пользователю.
 
-## Архитектура
-
-### Файловая структура
+## Структура проекта
 
 ```
 /
-├── main.py                 # Точка входа, регистрация обработчиков
-├── config.py              # Настройки, токены, логирование  
-├── models.py              # Pydantic модели для OCR данных
-├── handlers/              # Модуль обработчиков сообщений
-│   ├── __init__.py
-│   ├── start.py          # Обработчик команды /start
-│   ├── documents.py      # Обработка загрузки и обработки PDF
-│   └── common.py         # Fallback обработчики
-├── uploads/               # Папка для временных загрузок (создается автоматически)
-├── result/               # Папка для результатов OCR (создается автоматически)
-├── requirements.txt      # Зависимости проекта
-├── .env                  # Переменные окружения (не в git)
-└── README.md             # Этот файл
+├── main.py                  # Точка входа, регистрация обработчиков
+├── config.py                # Конфигурация, пороги и утилиты логирования
+├── models.py                # Pydantic‑модели OCR и результатов анализа
+├── handlers/                # Обработчики Telegram‑сообщений (aiogram)
+│   ├── start.py             # /start и приветствие с клавиатурой
+│   ├── documents.py         # Пайплайн: файл/URL → OCR → семантика → LLM → Excel
+│   └── common.py            # Fallback‑ответы
+├── services/                # Доменные сервисы пайплайна
+│   ├── ocr_service.py       # OCR и сохранение результата
+│   ├── semantic_page_filter.py   # Семантическая фильтрация страниц
+│   └── defect_analyzer.py   # LLM‑анализ и Excel‑отчет
+├── keyboards/               # Клавиатуры Telegram (основная кнопка)
+├── result/                  # Выходные JSON/TXT/Excel
+├── tests/                   # Скрипты проверки пайплайна и сервисов
+├── requirements.txt         # Зависимости
+└── .env                     # Секреты (BOT_TOKEN, OPENAI_API_KEY)
 ```
 
-### Компоненты системы
+## Полный пайплайн: по шагам и по коду
 
-#### 1. Точка входа (main.py)
-- Инициализация бота и диспетчера aiogram
-- Регистрация всех обработчиков сообщений
-- Запуск polling для получения обновлений
+1) Вход и маршрутизация (Telegram, aiogram)
+- `main.py`
+  - `dp.message.register(cmd_start, CommandStart())` — приветствие.
+  - `dp.message.register(handle_upload_document, F.text == "Загрузить документ")` — показать инструкцию/варианты.
+  - `defect_analysis_wrapper(message)` — обертка для полного анализа; регистрируется на `F.document` и на `F.text & is_url_message`.
+  - `is_url_message(message)` — эвристика для ссылок Google Drive/Dropbox/Яндекс.Диск.
 
-#### 2. Конфигурация (config.py)
-- Загрузка токена бота из переменных окружения
-- Настройка системы логирования
-- Базовые настройки приложения
+2) Загрузка файла и подготовка
+- `handlers/documents.py`
+  - `handle_full_defect_analysis(message, bot)` — оркестратор 4 этапов.
+  - Если файл: `bot.get_file` → временный `.pdf`.
+  - Если URL: `download_file_from_url(url)` → прямая ссылка через `get_direct_download_url` → временный `.pdf`.
 
-#### 3. Модели данных (models.py)
-Pydantic модели для структурирования OCR данных:
+3) OCR: извлечение текста и структурирование
+- `services/ocr_service.py`
+  - `process_pdf_ocr(pdf_path, original_filename)`
+    - `unstructured.partition.pdf(..., strategy="hi_res", extract_image_block_to_payload=False, infer_table_structure=False, languages=["rus"])`.
+    - Группировка элементов по страницам → `models.PageData`, `models.DocumentData`.
+  - `save_ocr_result(document)` — сохраняет `result/ocr_result_<stem>.json` и `result/full_text_<stem>.txt`.
 
-- **TextElement**: Элемент текста (категория, содержимое, тип)
-- **PageData**: Данные одной страницы (номер, текст, элементы)
-- **DocumentData**: Данные всего документа (имя файла, страницы, методы доступа)
+4) Семантическая фильтрация страниц
+- `services/semantic_page_filter.py`
+  - `SemanticPageFilter(utterances, score_threshold)` — инициализация порога; utterances берутся из `config.DEFECT_SEARCH_UTTERANCES`.
+  - `setup_semantic_router()` — `OpenAIEncoder` + `SemanticRouter(Route(name="problems", ...))` (требуется `OPENAI_API_KEY`).
+  - `analyze_document_pages(document)` — батч‑анализ страниц (по 5), собирает `PageAnalysisResult(page_number, route_name, similarity_score)`.
+  - `filter_relevant_pages(results, top_limit)` — фильтр по порогу и топ‑N (по убыванию score).
+  - `get_relevant_page_numbers(document, top_limit)` — основной метод; есть шорткат `analyze_document_from_json(json_path, utterances, score_threshold, top_limit)`.
 
-#### 4. Обработчики (handlers/)
+5) LLM‑анализ дефектов и Excel
+- `services/defect_analyzer.py`
+  - `DefectAnalyzer._setup_openai_client()` — настраивает OpenAI SDK по `OPENAI_API_KEY`.
+  - `analyze_combined_text(combined_text)` — Chat Completions с `response_format=DefectAnalysisListResult` (типизированный ответ), модель `gpt-4.1-mini-2025-04-14`.
+  - `process_combined_pages(page_texts)` — объединяет выбранные страницы в единый текст.
+  - `analyze_document_defects(document, relevant_page_numbers, output_path)` — полный прогон и `create_excel_report(...)` через pandas.
+  - Шорткат: `analyze_document_from_json_with_excel(json_path, relevant_page_numbers, output_path)`.
 
-**start.py**: 
-- Обработка команды `/start`
-- Отправка приветственного сообщения с клавиатурой
+6) Результат пользователю
+- `handlers/documents.py`
+  - После анализа отправляет Excel‑файл через `message.answer_document(...)` и краткую сводку.
 
-**documents.py**:
-- `handle_upload_document()`: Обработка нажатия кнопки "Загрузить документ"
-- `handle_pdf_document()`: Основная логика OCR обработки PDF файлов
-- `handle_url_document()`: Обработка PDF документов по ссылкам из облачных хранилищ
-- `download_file_from_url()`: Скачивание файлов по URL
-- `get_direct_download_url()`: Преобразование ссылок облачных хранилищ в прямые ссылки
+## Модели данных (models.py)
 
-**common.py**:
-- Fallback обработчик для необработанных сообщений
+- `TextElement { category: str, content: str, type: "text" }` — атом текста.
+- `PageData { page_number: int, full_text: str, elements: List[TextElement], total_elements: int }` — страница.
+- `DocumentData { filename: str, total_pages: int, pages: List[PageData] }` — документ; утилиты: `get_all_text()`, `get_elements_by_category(...)`.
+- `DefectAnalysisResult { source_text, room, location, defect, work_type }` — запись дефекта (значения некоторых полей ограничены наборами, см. код).
+- `DefectAnalysisListResult { defects: List[DefectAnalysisResult] }` — список дефектов (для типизированного ответа LLM).
 
-### Процесс обработки документов
+## Конфигурация и важные пороги (config.py)
 
-#### Прямая загрузка файла
-1. **Получение файла**: Пользователь отправляет PDF документ (до 20 МБ)
-2. **Скачивание**: Файл скачивается во временную папку
-3. **OCR обработка**: Использование библиотеки Unstructured для извлечения текста
-4. **Структурирование**: Преобразование в Pydantic модели
-5. **Сохранение**: Результаты сохраняются в папку `result/` в JSON и TXT форматах
-6. **Очистка**: Временный файл удаляется
-7. **Возврат**: Пользователю отправляется информация о результатах
-
-#### Загрузка по ссылке
-1. **Получение ссылки**: Пользователь отправляет URL на PDF в облачном хранилище
-2. **Преобразование URL**: Ссылка конвертируется в прямую ссылку для скачивания
-3. **Скачивание**: Файл скачивается во временную папку через aiohttp
-4. **OCR обработка**: Аналогично прямой загрузке
-5. **Генерация имени**: Создается уникальное имя файла с временной меткой
-6. **Сохранение и возврат**: Аналогично прямой загрузке
-
-### Особенности реализации
-
-#### Безопасность
-- Токен бота загружается из переменных окружения
-- Файлы имеют ограничения по размеру (через Telegram API)
-- Временные файлы очищаются после обработки
-
-#### Логирование
-- Использование стандартного модуля `logging`
-- Логи включают временные метки и уровни важности
-- Отдельный логгер для каждого модуля
-
-#### Обработка ошибок
-- Корректная обработка исключений aiogram
-- Информативные сообщения пользователю при ошибках
-- Логирование ошибок для отладки
-
-## Технологический стек
-
-### Основные зависимости
-- **aiogram 3.22.0**: Современная библиотека для создания Telegram ботов
-- **python-dotenv 1.0.1**: Загрузка переменных окружения из .env файла
-- **unstructured[pdf]**: Библиотека для OCR и извлечения структурированного текста
-- **aiohttp**: Асинхронный HTTP клиент для скачивания файлов по URL
-- **pydantic**: Валидация данных и создание моделей
-
-### Python версия
-Рекомендуется Python 3.8+
+- `SEMANTIC_SCORE_THRESHOLD` — порог релевантности страницы (по умолчанию 0.5).
+- `SEMANTIC_TOP_PAGES_LIMIT` — верхняя граница страниц к анализу (по умолчанию 10).
+- `DEFECT_SEARCH_UTTERANCES` — примеры формулировок для маршрутизатора семантики.
+- `DEFECT_ANALYSIS_SCORE_THRESHOLD` — порог для этапа поиска дефектов (обычно ниже базового; по умолчанию 0.4).
+- `DEFECT_ANALYSIS_TOP_PAGES` — лимит страниц в анализ LLM (по умолчанию 8).
+- Секреты: `BOT_TOKEN` (Telegram), `OPENAI_API_KEY` (семантика и LLM).
 
 ## Установка и запуск
 
-### 1. Клонирование репозитория
-```bash
-git clone <repository-url>
-cd osmi_demo_1-1
-```
+1) Python и зависимости
+- Рекомендуется Python 3.10+.
+- Установка зависимостей: `pip install -r requirements.txt`.
+- Для `unstructured[pdf]` могут потребоваться системные пакеты (OCR/рекомендации см. документацию Unstructured).
 
-### 2. Создание виртуального окружения
-```bash
-python -m venv venv
-source venv/bin/activate  # На Windows: venv\Scripts\activate
+2) Переменные окружения (`.env`)
 ```
-
-### 3. Установка зависимостей
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Настройка переменных окружения
-Создайте файл `.env` в корне проекта:
-```env
 BOT_TOKEN=ваш_токен_бота_от_BotFather
+OPENAI_API_KEY=ваш_openai_api_key
 ```
 
-### 5. Запуск бота
-```bash
+3) Запуск бота
+```
 python main.py
 ```
 
-## Использование
+## Использование бота
 
-1. Запустите бота командой `/start`
-2. Нажмите кнопку "Загрузить документ"
-3. Выберите способ загрузки PDF:
-   - **Прямая загрузка**: Отправьте файл напрямую (до 20 МБ)
-   - **Ссылка из облака**: Отправьте ссылку на файл из:
-     - Google Drive
-     - Dropbox
-     - Яндекс.Диск
-4. Получите обработанный текст и файл с результатами
+- `/start` → появляется клавиатура с кнопкой `Загрузить документ`.
+- Отправьте PDF (до ~20 МБ) или ссылку на файл (Google Drive/Dropbox/Я.Диск).
+- Бот выполнит 4 этапа и пришлет Excel‑отчет.
 
-### Поддержка больших файлов
+## Выходные файлы (result/)
 
-Для PDF файлов размером более 20 МБ используйте облачные хранилища:
+- `ocr_result_<stem>.json` — документ в структуре Pydantic.
+- `full_text_<stem>.txt` — конкатенация текста по страницам.
+- `defect_analysis_<timestamp>.xlsx` — итоговый отчет по дефектам.
 
-1. Загрузите PDF в Google Drive/Dropbox/Яндекс.Диск
-2. Получите публичную ссылку на файл
-3. Отправьте ссылку боту
-4. Бот автоматически скачает и обработает файл
+## Нюансы и ограничения
 
-**Примеры поддерживаемых ссылок:**
-- `https://drive.google.com/file/d/FILE_ID/view?usp=sharing`
-- `https://dropbox.com/s/FILE_ID/document.pdf?dl=0`
-- Прямые HTTP/HTTPS ссылки на PDF файлы
+- OCR извлекает только текст; изображения/таблицы не анализируются (`extract_image_block_to_payload=False`, `infer_table_structure=False`).
+- Семантический фильтр и LLM требуют сети и валидного `OPENAI_API_KEY`.
+- Обработка ссылок:
+  - Google Drive: конвертация в прямую загрузку по `file_id`.
+  - Dropbox: замена `dl=0` → `dl=1`.
+  - Яндекс.Диск: прямая ссылка не нормализуется (нужен API), используется как есть.
+- Семантический анализ выполняется батчами по 5 страниц с небольшой задержкой между батчами.
+- Модель LLM указана как `gpt-4.1-mini-2025-04-14` (должна быть доступна в аккаунте OpenAI; при необходимости замените в коде).
 
-## Структура выходных данных
+## Карта функций: где что происходит
 
-### JSON результат (result/*.json)
-```json
-{
-  "filename": "document.pdf",
-  "total_pages": 2,
-  "pages": [
-    {
-      "page_number": 1,
-      "full_text": "Полный текст страницы...",
-      "elements": [
-        {
-          "category": "Title",
-          "content": "Заголовок документа",
-          "type": "text"
-        }
-      ],
-      "total_elements": 5
-    }
-  ]
-}
-```
+- Вход/роутинг: `main.py` → `defect_analysis_wrapper`, `is_url_message`.
+- Инструкция: `handlers/start.py: cmd_start`, `keyboards/main.py: main_keyboard`.
+- Оркестрация пайплайна: `handlers/documents.py: handle_full_defect_analysis`.
+- Загрузка по URL: `handlers/documents.py: download_file_from_url`, `get_direct_download_url`.
+- OCR: `services/ocr_service.py: process_pdf_ocr`, `save_ocr_result`.
+- Семантика: `services/semantic_page_filter.py: SemanticPageFilter.setup_semantic_router`, `analyze_document_pages`, `filter_relevant_pages`, `get_relevant_page_numbers`, `analyze_document_from_json`.
+- LLM и Excel: `services/defect_analyzer.py: DefectAnalyzer._setup_openai_client`, `analyze_combined_text`, `process_combined_pages`, `analyze_document_defects`, `create_excel_report`, `analyze_document_from_json_with_excel`.
 
-### Текстовый результат (result/*.txt)
-Форматированный текст с разделением по страницам и категориям элементов.
+## Тесты и локальная проверка
 
-## Разработка
+- Без сети можно проверить только OCR: `tests/test_ocr.py` (нужен тестовый PDF).
+- Полный пайплайн с сетью: `tests/test_full_pipeline.py` — OCR → семантика → LLM → Excel.
+- Дополнительно: `tests/test_semantic_page_filter.py`, `tests/test_defect_analyzer.py`.
 
-### Добавление новых обработчиков
-1. Создайте функцию в соответствующем модуле `handlers/`
-2. Зарегистрируйте обработчик в `main.py`
-3. Следуйте существующим паттернам async/await
+При отсутствии сети/ключей тесты семантики/LLM завершаются ошибкой — это ожидаемо.
 
-### Расширение моделей данных
-- Добавляйте новые поля в Pydantic модели в `models.py`
-- Используйте типизацию и валидацию данных
-- Добавляйте методы для работы с данными в классы
-
-### Логирование
-Используйте логгер из config:
-```python
-from config import logger
-logger.info("Информационное сообщение")
-logger.error("Ошибка: %s", error_message)
-```

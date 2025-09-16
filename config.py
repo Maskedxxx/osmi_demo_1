@@ -37,7 +37,7 @@ DEFECT_SEARCH_UTTERANCES = [
 ]
 
 # Настройки для анализа дефектов
-DEFECT_ANALYSIS_SCORE_THRESHOLD = 0.4  # Порог для поиска дефектов (ниже чем обычный)
+DEFECT_ANALYSIS_SCORE_THRESHOLD = 0.5  # Порог для поиска дефектов (ниже чем обычный)
 DEFECT_ANALYSIS_TOP_PAGES = 8          # Количество страниц для анализа дефектов
 
 # Настройка базового логирования

@@ -108,6 +108,11 @@ class SemanticPageFilter:
                 for page in batch_pages:
                     logger.info(f"Анализирую страницу {page.page_number}")
                     
+                    # Проверяем на пустой текст
+                    if not page.full_text or not page.full_text.strip():
+                        logger.warning(f"Страница {page.page_number} пуста, пропускаю")
+                        continue
+                    
                     # Анализируем текст страницы
                     router_result = self.router(page.full_text, limit=1)
                     

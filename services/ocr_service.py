@@ -56,7 +56,7 @@ async def process_pdf_ocr(pdf_path: str, original_filename: str, max_pages: Opti
                 pages_data[page_number] = []
             
             # Создаём TextElement для каждого непустого элемента
-            if element.text.strip():
+            if element.text and element.text.strip():
                 text_element = TextElement(
                     category=element.category,
                     content=element.text.strip(),
