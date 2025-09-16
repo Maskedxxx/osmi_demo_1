@@ -7,7 +7,8 @@ from aiogram import types, Bot
 
 from services.ocr_service import process_pdf_ocr, save_ocr_result
 from services.semantic_page_filter import analyze_document_from_json
-from services.defect_analyzer import analyze_document_from_json_with_excel
+from services.vlm_page_cleaner import VLMPageCleaner
+from services.defect_analyzer import analyze_vlm_cleaned_pages_with_excel
 from config import logger, DEFECT_SEARCH_UTTERANCES, DEFECT_ANALYSIS_SCORE_THRESHOLD, DEFECT_ANALYSIS_TOP_PAGES
 
 
@@ -19,8 +20,9 @@ async def handle_upload_document(message: types.Message):
         "и я выполню полный анализ:\n\n"
         "📄 **1. OCR обработка** - извлечение текста\n"
         "🎯 **2. Семантический поиск** - поиск страниц с дефектами\n"
-        "🤖 **3. LLM анализ** - структурирование информации\n"
-        "📊 **4. Excel отчет** - готовая таблица дефектов\n\n"
+        "🖼️ **3. VLM очистка** - улучшение качества текста\n"
+        "🤖 **4. LLM анализ** - структурирование информации\n"
+        "📊 **5. Excel отчет** - готовая таблица дефектов\n\n"
         "💡 **Поддерживаются:**\n"
         "• PDF файлы (до 20 МБ)\n"
         "• Ссылки на файлы из облачных хранилищ:\n"
@@ -223,8 +225,9 @@ async def handle_analyze_defects_command(message: types.Message):
         "и я выполню полный анализ:\n\n"
         "📄 **1. OCR обработка** - извлечение текста\n"
         "🎯 **2. Семантический поиск** - поиск страниц с дефектами\n"
-        "🤖 **3. LLM анализ** - структурирование информации\n"
-        "📊 **4. Excel отчет** - готовая таблица дефектов\n\n"
+        "🖼️ **3. VLM очистка** - улучшение качества текста\n"
+        "🤖 **4. LLM анализ** - структурирование информации\n"
+        "📊 **5. Excel отчет** - готовая таблица дефектов\n\n"
         "💡 Поддерживаются:\n"
         "• PDF файлы (до 20 МБ)\n"
         "• Ссылки на файлы из облачных хранилищ",
@@ -237,8 +240,9 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
     Полный пайплайн анализа дефектов:
     1. OCR обработка PDF
     2. Семантический поиск релевантных страниц
-    3. LLM анализ дефектов
-    4. Создание Excel отчета
+    3. VLM очистка и улучшение текста страниц
+    4. LLM анализ дефектов
+    5. Создание Excel отчета
     """
     
     # Определяем тип входных данных (файл или ссылка)
@@ -266,7 +270,7 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
     
     try:
         # ========== ЭТАП 1: Загрузка и OCR обработка ==========
-        await progress_message.edit_text("📄 **Этап 1/4:** Загрузка и OCR обработка документа...", parse_mode="Markdown")
+        await progress_message.edit_text("📄 **Этап 1/5:** Загрузка и OCR обработка документа...", parse_mode="Markdown")
         
         if is_file:
             # Скачиваем загруженный файл
@@ -294,7 +298,7 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
         logger.info(f"OCR завершен: {document_data.total_pages} страниц за {processing_time:.1f}с")
         
         # ========== ЭТАП 2: Семантический поиск релевантных страниц ==========
-        await progress_message.edit_text("🎯 **Этап 2/4:** Поиск страниц с описанием дефектов...", parse_mode="Markdown")
+        await progress_message.edit_text("🎯 **Этап 2/5:** Поиск страниц с описанием дефектов...", parse_mode="Markdown")
         
         relevant_pages = await analyze_document_from_json(
             json_path=json_file,
@@ -302,8 +306,11 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
             score_threshold=DEFECT_ANALYSIS_SCORE_THRESHOLD,
             top_limit=DEFECT_ANALYSIS_TOP_PAGES
         )
-        
-        if not relevant_pages:
+
+        # Сортируем и убираем дубликаты, чтобы сохранить порядок страниц в документе
+        sorted_relevant_pages = sorted(set(relevant_pages))
+
+        if not sorted_relevant_pages:
             await progress_message.edit_text(
                 "⚠️ **Анализ завершен с предупреждением**\n\n"
                 "В документе не найдены страницы с описанием дефектов строительных работ.\n"
@@ -315,21 +322,38 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
             )
             return
         
-        logger.info(f"Найдено релевантных страниц: {len(relevant_pages)} - {relevant_pages}")
+        logger.info(
+            "Найдено релевантных страниц: %d (после сортировки: %d) - %s (отсортировано: %s)",
+            len(relevant_pages),
+            len(sorted_relevant_pages),
+            relevant_pages,
+            sorted_relevant_pages,
+        )
+
+        # ========== ЭТАП 3: VLM обработка релевантных страниц ==========
+        await progress_message.edit_text("🖼️ **Этап 3/5:** VLM обработка и очистка страниц...", parse_mode="Markdown")
+
+        # Инициализируем VLM очиститель
+        vlm_cleaner = VLMPageCleaner()
+
+        # Обрабатываем релевантные страницы через VLM
+        from pathlib import Path
+        vlm_result = vlm_cleaner.process_pages(Path(temp_path), sorted_relevant_pages)
         
-        # ========== ЭТАП 3: LLM анализ и создание Excel ==========
-        await progress_message.edit_text("🤖 **Этап 3/4:** Анализ дефектов через LLM и создание Excel...", parse_mode="Markdown")
+        logger.info(f"VLM обработка завершена: {vlm_result.processed_pages} страниц")
         
-        excel_path = await analyze_document_from_json_with_excel(
-            json_path=json_file,
-            relevant_page_numbers=relevant_pages,
+        # ========== ЭТАП 4: LLM анализ и создание Excel ==========
+        await progress_message.edit_text("🤖 **Этап 4/5:** Анализ дефектов через LLM и создание Excel...", parse_mode="Markdown")
+        
+        excel_path = await analyze_vlm_cleaned_pages_with_excel(
+            vlm_result=vlm_result,
             output_path=None  # Автоматическое имя файла
         )
         
         logger.info(f"Excel отчет создан: {excel_path}")
         
-        # ========== ЭТАП 4: Отправка результата пользователю ==========
-        await progress_message.edit_text("📊 **Этап 4/4:** Подготовка результата...", parse_mode="Markdown")
+        # ========== ЭТАП 5: Отправка результата пользователю ==========
+        await progress_message.edit_text("📊 **Этап 5/5:** Подготовка результата...", parse_mode="Markdown")
         
         # Отправляем Excel файл пользователю
         with open(excel_path, 'rb') as excel_file:
@@ -344,7 +368,7 @@ async def handle_full_defect_analysis(message: types.Message, bot: Bot):
                     f"✅ **Анализ дефектов завершен!**\n\n"
                     f"📄 **Документ:** {document_data.filename}\n"
                     f"📖 **Страниц обработано:** {document_data.total_pages}\n"
-                    f"🎯 **Найдено релевантных:** {len(relevant_pages)} страниц\n"
+                    f"🎯 **Найдено релевантных:** {len(sorted_relevant_pages)} страниц\n"
                     f"⏱️ **Время OCR:** {processing_time:.1f} сек\n\n"
                     f"📋 **Результат:** Excel таблица с структурированными данными о дефектах"
                 ),

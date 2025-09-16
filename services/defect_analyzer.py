@@ -10,7 +10,7 @@ from datetime import datetime
 from openai import OpenAI
 import pandas as pd
 
-from models import DocumentData, DefectAnalysisResult, DefectAnalysisListResult
+from models import DocumentData, DefectAnalysisResult, DefectAnalysisListResult, VLMCleaningResult
 from config import logger, OPENAI_API_KEY
 
 
@@ -301,4 +301,43 @@ async def analyze_document_from_json_with_excel(json_path: str,
         
     except Exception as e:
         logger.error(f"❌ Ошибка при анализе документа из JSON: {e}")
+        raise
+
+
+async def analyze_vlm_cleaned_pages_with_excel(vlm_result: VLMCleaningResult,
+                                             output_path: str = None) -> str:
+    """
+    Анализ VLM-очищенных страниц с созданием Excel отчета
+    
+    Args:
+        vlm_result: Результат VLM обработки страниц  
+        output_path: Путь для Excel файла
+        
+    Returns:
+        str: Путь к созданному Excel файлу
+    """
+    logger.info(f"Анализирую {vlm_result.processed_pages} VLM-очищенных страниц")
+    
+    try:
+        # Извлекаем очищенные тексты из VLM результата
+        page_texts = [page.cleaned_text for page in vlm_result.cleaned_pages]
+        
+        if not page_texts:
+            raise ValueError("Нет VLM-очищенных страниц для анализа")
+        
+        # Создаем анализатор и обрабатываем очищенные тексты
+        analyzer = DefectAnalyzer()
+        analysis_results = await analyzer.process_combined_pages(page_texts)
+        
+        if not analysis_results:
+            raise ValueError("Не удалось получить результаты анализа VLM-данных")
+        
+        # Создаем Excel отчет
+        excel_path = analyzer.create_excel_report(analysis_results, output_path)
+        
+        logger.info(f"✅ Анализ VLM-данных завершен: {excel_path}")
+        return excel_path
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка при анализе VLM-данных: {e}")
         raise

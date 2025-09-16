@@ -95,6 +95,23 @@ class DefectAnalysisResult(BaseModel):
     ] = Field(..., description="Наименование работ которые проводились при возникновении дефекта")
 
 
+class CleanedPageData(BaseModel):
+    """
+    Данные страницы после обработки VLM
+    """
+    page_number: int = Field(..., description="Номер страницы")
+    cleaned_text: str = Field(..., description="Очищенный и структурированный текст страницы")
+
+
+class VLMCleaningResult(BaseModel):
+    """
+    Результат VLM обработки страниц
+    """
+    source_pdf: str = Field(..., description="Путь к исходному PDF файлу")
+    processed_pages: int = Field(..., description="Количество обработанных страниц")
+    cleaned_pages: List[CleanedPageData] = Field(default=[], description="Список очищенных страниц")
+
+
 class DefectAnalysisListResult(BaseModel):
     """
     Список результатов анализа дефектов

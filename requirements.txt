@@ -7,3 +7,4 @@ python-multipart
 aiohttp
 semantic-router
 openai
+pdf2image
