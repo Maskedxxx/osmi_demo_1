@@ -11,6 +11,7 @@ from openai import OpenAI
 import pandas as pd
 
 from models import DocumentData, DefectAnalysisResult, DefectAnalysisListResult, VLMCleaningResult
+from services.llm_usage_tracker import log_chat_completion_usage
 from config import logger, OPENAI_API_KEY
 
 
@@ -121,21 +122,30 @@ class DefectAnalyzer:
         logger.info(f"Анализирую объединенный текст через LLM ({len(combined_text)} символов)")
         
         try:
+            model_name = "gpt-4.1-mini-2025-04-14"
+            messages = [
+                {
+                    "role": "system",
+                    "content": EXPERT_DEFECT_ANALYSIS_PROMPT,
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Проанализируйте следующий объединенный текст из технического отчета и "
+                        "найдите все дефекты:\n\n"
+                        f"{combined_text}"
+                    ),
+                },
+            ]
+
             completion = self.client.chat.completions.parse(
-                model="gpt-4.1-mini-2025-04-14",
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": EXPERT_DEFECT_ANALYSIS_PROMPT
-                    },
-                    {
-                        "role": "user", 
-                        "content": f"Проанализируйте следующий объединенный текст из технического отчета и найдите все дефекты:\n\n{combined_text}"
-                    }
-                ],
+                model=model_name,
+                messages=messages,
                 response_format=DefectAnalysisListResult,
             )
-            
+
+            log_chat_completion_usage(model_name, messages, completion, logger)
+
             result = completion.choices[0].message.parsed
             
             logger.info(f"✅ Анализ завершен: найдено {len(result.defects)} дефектов")
