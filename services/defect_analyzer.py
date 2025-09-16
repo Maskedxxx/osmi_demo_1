@@ -4,7 +4,7 @@
 
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from openai import OpenAI
@@ -13,69 +13,7 @@ import pandas as pd
 from models import DocumentData, DefectAnalysisResult, DefectAnalysisListResult, VLMCleaningResult
 from services.llm_usage_tracker import log_chat_completion_usage
 from config import logger, OPENAI_API_KEY
-
-
-# Экспертный промпт для анализа технических отчетов
-EXPERT_DEFECT_ANALYSIS_PROMPT = """Вы - опытный эксперт по строительной экспертизе и техническому контролю качества ремонтных работ.
-
-СТРУКТУРА ДОКУМЕНТА: 
-Предоставленный текст - это экспертиза строительных работ, которая организована по РАЗДЕЛАМ. Каждый раздел посвящен определенному ТИПУ КОНСТРУКЦИИ помещения (пол, потолок, стена, дверь, окно и т.д.). В каждом разделе перечислены конкретные недостатки, выявленные для данного типа конструкции.
-
-ЗАДАЧА: 
-Извлеките ВСЕ недостатки из каждого раздела экспертизы и структурируйте их согласно полям схемы.
-
-ПРАВИЛА АНАЛИЗА:
-
-1. ОПРЕДЕЛЕНИЕ РАЗДЕЛА И ЛОКАЛИЗАЦИИ:
-   - Найдите разделы по типам конструкций (например: "ПОТОЛКИ", "ПОЛЫ", "СТЕНЫ", "ДВЕРИ")
-   - Все недостатки из раздела "ПОТОЛКИ" → location = "Потолок"  
-   - Все недостатки из раздела "ПОЛЫ" → location = "Пол"
-   - Все недостатки из раздела "СТЕНЫ" → location = "Стена"
-   - И так далее для каждого типа конструкции
-
-2. ИЗВЛЕЧЕНИЕ НЕДОСТАТКОВ:
-
-   ПРАВИЛО ИДЕНТИФИКАЦИИ ДЕФЕКТОВ:
-   - Каждый фрагмент текста с технической ссылкой (СНиП, ГОСТ, СП, ТР, СТО) = отдельный дефект
-   - Если в одном абзаце несколько ссылок на разные нормы = несколько дефектов  
-   - Детали к дефекту (размеры, помещения, характеристики) объединяются в одно описание
-   - Общие фразы БЕЗ нормативных ссылок = заголовки разделов, НЕ дефекты
-
-   ПРОЦЕСС ИЗВЛЕЧЕНИЯ:
-   - Внутри каждого раздела найдите ВСЕ фрагменты с техническими ссылками
-   - Каждая ссылка на норматив = отдельная запись в результате
-   - Если у недостатка есть вложенные детали/подробности - включите их в описание дефекта, НЕ создавайте отдельную запись
-
-3. ЗАПОЛНЕНИЕ ПОЛЕЙ (согласно схеме DefectAnalysisResult):
-
-   source_text - ключевая фраза из текста экспертизы (10-15 слов):
-   - Скопируйте характерную часть описания дефекта из документа
-   - Сохраните техническую терминологию
-   - Включите ссылку на норматив если есть
-
-   room - тип помещения где обнаружен дефект:
-   - Гостиная, Спальня, Детская, Кабинет, Кухня, Ванная, Туалет, Коридор, Прихожая, Балкон, Лоджия, Кладовая, Гардеробная
-   - Если не указано: "Жилое помещение"
-
-   location - локализация дефекта согласно разделу экспертизы:
-   - Пол, Потолок, Стена, Межкомнатная дверь, Входная дверь, Окно, Оконный блок, Сантехника, Электрика, Отопление, Плитка, Покрытие, Штукатурка, Краска
-
-   defect - полное техническое описание дефекта:
-   - Скопируйте описание из экспертизы с сохранением терминологии
-   - Включите количественные характеристики (размеры, площади, отклонения)
-   - Укажите нарушенную норму и пункт
-   - Если есть вложенные детали - объедините в одно описание
-   - НЕ сокращайте техническое описание
-
-   work_type - тип работ для устранения дефекта:
-   - Отделочные работы, Сантехнические работы, Электромонтажные работы, Плиточные работы, Малярные работы, Штукатурные работы, Демонтажные работы
-
-ВАЖНО:
-- НЕ ПРОПУСКАЙТЕ недостатки из-за того что они кажутся мелкими
-- НЕ СОЗДАВАЙТЕ отдельные записи для вложенных деталей недостатка  
-- ОБЪЕДИНЯЙТЕ детали в основное описание дефекта
-- Если раздел не содержит недостатков - не создавайте записи для него
-- Используйте ТОЛЬКО значения из предложенных списков для полей с ограниченным выбором"""
+from prompts import EXPERT_DEFECT_ANALYSIS_PROMPT
 
 
 class DefectAnalyzer:
@@ -84,6 +22,7 @@ class DefectAnalyzer:
     def __init__(self):
         """Инициализация анализатора дефектов"""
         self.client = None
+        self.last_usage: Optional[dict] = None
         
     def _setup_openai_client(self) -> bool:
         """
@@ -98,11 +37,11 @@ class DefectAnalyzer:
                 return False
                 
             self.client = OpenAI(api_key=OPENAI_API_KEY)
-            logger.info("✅ OpenAI клиент настроен успешно")
+            logger.info("OpenAI клиент настроен успешно")
             return True
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при настройке OpenAI клиента: {e}")
+            logger.error(f"Ошибка при настройке OpenAI клиента: {e}")
             return False
     
     async def analyze_combined_text(self, combined_text: str) -> DefectAnalysisListResult:
@@ -121,6 +60,8 @@ class DefectAnalyzer:
         
         logger.info(f"Анализирую объединенный текст через LLM ({len(combined_text)} символов)")
         
+        self.last_usage = None
+
         try:
             model_name = "gpt-4.1-mini-2025-04-14"
             messages = [
@@ -144,15 +85,15 @@ class DefectAnalyzer:
                 response_format=DefectAnalysisListResult,
             )
 
-            log_chat_completion_usage(model_name, messages, completion, logger)
+            self.last_usage = log_chat_completion_usage(model_name, messages, completion, logger)
 
             result = completion.choices[0].message.parsed
             
-            logger.info(f"✅ Анализ завершен: найдено {len(result.defects)} дефектов")
+            logger.info(f"Анализ завершен: найдено {len(result.defects)} дефектов")
             return result
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при анализе текста через LLM: {e}")
+            logger.error(f"Ошибка при анализе текста через LLM: {e}")
             raise
     
     def create_excel_report(self, analysis_results: List[DefectAnalysisResult], 
@@ -192,11 +133,11 @@ class DefectAnalyzer:
             # Сохраняем в Excel с индексом начиная с 1
             df.to_excel(output_path, index=False, sheet_name="Анализ дефектов")
             
-            logger.info(f"✅ Excel отчет создан: {output_path} ({len(analysis_results)} записей)")
+            logger.info(f"Excel отчет создан: {output_path} ({len(analysis_results)} записей)")
             return output_path
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при создании Excel отчета: {e}")
+            logger.error(f"Ошибка при создании Excel отчета: {e}")
             raise
     
     async def process_combined_pages(self, page_texts: List[str]) -> List[DefectAnalysisResult]:
@@ -218,11 +159,11 @@ class DefectAnalyzer:
         
         try:
             result = await self.analyze_combined_text(combined_text)
-            logger.info(f"✅ Обработка завершена: найдено {len(result.defects)} дефектов")
+            logger.info(f"Обработка завершена: найдено {len(result.defects)} дефектов")
             return result.defects
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при обработке объединенного текста: {e}")
+            logger.error(f"Ошибка при обработке объединенного текста: {e}")
             raise
     
     async def analyze_document_defects(self, document: DocumentData, 
@@ -267,11 +208,11 @@ class DefectAnalyzer:
             # Создаем Excel отчет
             excel_path = self.create_excel_report(analysis_results, output_path)
             
-            logger.info(f"✅ Анализ документа завершен: {excel_path}")
+            logger.info(f"Анализ документа завершен: {excel_path}")
             return excel_path
             
         except Exception as e:
-            logger.error(f"❌ Ошибка при анализе документа: {e}")
+            logger.error(f"Ошибка при анализе документа: {e}")
             raise
 
 
@@ -297,7 +238,7 @@ async def analyze_document_from_json_with_excel(json_path: str,
             data = json.load(f)
         
         document = DocumentData(**data)
-        logger.info(f"✅ Документ загружен: {document.filename}, страниц: {document.total_pages}")
+        logger.info(f"Документ загружен: {document.filename}, страниц: {document.total_pages}")
         
         # Создаем анализатор и запускаем анализ
         analyzer = DefectAnalyzer()
@@ -310,7 +251,7 @@ async def analyze_document_from_json_with_excel(json_path: str,
         return excel_path
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при анализе документа из JSON: {e}")
+        logger.error(f"Ошибка при анализе документа из JSON: {e}")
         raise
 
 
@@ -345,9 +286,9 @@ async def analyze_vlm_cleaned_pages_with_excel(vlm_result: VLMCleaningResult,
         # Создаем Excel отчет
         excel_path = analyzer.create_excel_report(analysis_results, output_path)
         
-        logger.info(f"✅ Анализ VLM-данных завершен: {excel_path}")
+        logger.info(f"Анализ VLM-данных завершен: {excel_path}")
         return excel_path
         
     except Exception as e:
-        logger.error(f"❌ Ошибка при анализе VLM-данных: {e}")
+        logger.error(f"Ошибка при анализе VLM-данных: {e}")
         raise
