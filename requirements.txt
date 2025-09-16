@@ -8,3 +8,4 @@ aiohttp
 semantic-router
 openai
 pdf2image
+tiktoken
