@@ -7,7 +7,8 @@ from typing import List
 from pdf2image import convert_from_path
 from openai import OpenAI
 
-from config import OPENAI_API_KEY, VLM_MODEL, VLM_CLEAN_PROMPT
+from config import OPENAI_API_KEY, VLM_MODEL
+from prompts import VLM_CLEAN_PROMPT
 from models import CleanedPageData, VLMCleaningResult
 
 logger = logging.getLogger(__name__)
