@@ -2,6 +2,7 @@
 Сервис для OCR обработки PDF документов
 """
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Optional, Tuple
@@ -30,12 +31,13 @@ async def process_pdf_ocr(pdf_path: str, original_filename: str, max_pages: Opti
     try:
         # OCR обработка только для текста
         logger.info("Запускаю unstructured для извлечения текста")
-        elements = partition_pdf(
+        elements = await asyncio.to_thread(
+            partition_pdf,
             filename=pdf_path,
             strategy="hi_res",  # Высокое качество распознавания
             extract_image_block_to_payload=False,  # НЕ извлекаем изображения
             infer_table_structure=False,  # НЕ обрабатываем таблицы
-            languages=["rus"]  # Русский язык
+            languages=["rus"],  # Русский язык
         )
         
         logger.info(f"Извлечено элементов: {len(elements)}")

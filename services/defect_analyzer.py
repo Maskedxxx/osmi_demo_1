@@ -4,7 +4,7 @@
 
 import json
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 
 from openai import OpenAI
@@ -84,6 +84,7 @@ class DefectAnalyzer:
     def __init__(self):
         """Инициализация анализатора дефектов"""
         self.client = None
+        self.last_usage: Optional[dict] = None
         
     def _setup_openai_client(self) -> bool:
         """
@@ -121,6 +122,8 @@ class DefectAnalyzer:
         
         logger.info(f"Анализирую объединенный текст через LLM ({len(combined_text)} символов)")
         
+        self.last_usage = None
+
         try:
             model_name = "gpt-4.1-mini-2025-04-14"
             messages = [
@@ -144,7 +147,7 @@ class DefectAnalyzer:
                 response_format=DefectAnalysisListResult,
             )
 
-            log_chat_completion_usage(model_name, messages, completion, logger)
+            self.last_usage = log_chat_completion_usage(model_name, messages, completion, logger)
 
             result = completion.choices[0].message.parsed
             
