@@ -123,7 +123,7 @@ class DefectAnalyzer:
                 "Текст из АПО/экспертизы": [r.source_text for r in analysis_results],
                 "Помещение": [r.room for r in analysis_results],
                 "Локализация": [r.location for r in analysis_results],
-                "Дефект": [r.defect for r in analysis_results],
+                "Дефект": [r.get_defect_full_name() for r in analysis_results],
                 "Наименование работы": [r.work_type for r in analysis_results]
             }
             
