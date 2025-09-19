@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aiogram import Bot, types
+from aiogram import types
 
 from config import logger
 from services.pipeline_runner import (
@@ -42,7 +42,7 @@ def format_cost(usage: dict | None) -> str:
     return f"${cost:.4f}"
 
 
-async def handle_full_defect_analysis(message: types.Message, _bot: Bot) -> None:
+async def handle_full_defect_analysis(message: types.Message) -> None:
     """Оркестрирует последовательный запуск всех шагов пайплайна."""
     link = (message.text or "").strip()
     if not extract_google_drive_file_id(link):
@@ -98,7 +98,26 @@ async def handle_full_defect_analysis(message: types.Message, _bot: Bot) -> None
         await message.answer(
             "**ШАГ 3/4: ОЧИСТКА ЧЕРЕЗ VISION LM**\nПриведение текста (~1-2 минуты)."
         )
-        vlm_meta = await pipeline.run_vlm_cleaning()
+        
+        max_vlm_retries = 2
+        for vlm_attempt in range(max_vlm_retries):
+            try:
+                vlm_meta = await pipeline.run_vlm_cleaning()
+                break
+            except Exception as e:
+                if "Connection" in str(e) and vlm_attempt < max_vlm_retries - 1:
+                    await message.answer(
+                        f"⚠️ Сетевая ошибка на шаге 3, повторяю попытку {vlm_attempt + 1}/{max_vlm_retries}..."
+                    )
+                    continue
+                else:
+                    await message.answer(
+                        "❌ **ОШИБКА ШАГА 3**\n"
+                        "Не удалось обработать страницы через Vision LM.\n"
+                        "Проверьте сетевое соединение и попробуйте позже."
+                    )
+                    raise
+        
         await message.answer(
             "**ШАГ 3 ЗАВЕРШЁН**\n"
             f"Страниц очищено: {vlm_meta.processed_pages}\n"
