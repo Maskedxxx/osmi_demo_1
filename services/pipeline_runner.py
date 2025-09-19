@@ -182,7 +182,26 @@ class DefectAnalysisPipeline:
                 local_filename = safe_filename(extracted, f"document_{file_id}")
                 local_path = self.pipeline_dir / local_filename
 
+                
+                # Читаем первые несколько байт для проверки формата
+                first_chunk = await response.content.read(1024)
+                
+                # Проверяем, что это PDF файл, а не HTML
+                if first_chunk.startswith(b'<!DOCTYPE html') or first_chunk.startswith(b'<html'):
+                    raise PipelineError(
+                        "Google Drive вернул HTML страницу вместо PDF файла. "
+                        "Убедитесь, что файл доступен для публичного скачивания "
+                        "или проверьте правильность ссылки."
+                    )
+                
+                if not first_chunk.startswith(b'%PDF-'):
+                    raise PipelineError(
+                        "Скачанный файл не является PDF документом. "
+                        "Проверьте ссылку на файл."
+                    )
+
                 with open(local_path, "wb") as file_out:
+                    file_out.write(first_chunk)
                     async for chunk in response.content.iter_chunked(65536):
                         file_out.write(chunk)
 

@@ -9,7 +9,7 @@ API_TOKEN = os.getenv("BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Настройки для семантического анализа дефектов
-SEMANTIC_SCORE_THRESHOLD = 0.5  # Порог схожести для отбора релевантных страниц  
+SEMANTIC_SCORE_THRESHOLD = 0.4  # Порог схожести для отбора релевантных страниц  
 SEMANTIC_TOP_PAGES_LIMIT = 10    # Максимальное количество страниц для анализа
 
 # Utterances для поиска дефектов в строительных отчетах

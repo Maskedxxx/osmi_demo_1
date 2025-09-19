@@ -98,8 +98,16 @@ async def process_pdf_ocr(pdf_path: str, original_filename: str, max_pages: Opti
         return document, processing_time
         
     except Exception as e:
-        logger.error(f"Ошибка при OCR обработке файла {pdf_path}: {e}")
-        raise
+        error_msg = str(e)
+        if "PDFPageCountError" in error_msg or "Couldn't read xref table" in error_msg:
+            logger.error(f"PDF файл повреждён или имеет неправильный формат: {pdf_path}")
+            raise Exception(
+                "PDF файл повреждён или имеет неправильный формат. "
+                "Проверьте, что скачанный файл является корректным PDF документом."
+            )
+        else:
+            logger.error(f"Ошибка при OCR обработке файла {pdf_path}: {e}")
+            raise
 
 
 async def save_ocr_result(document: DocumentData, result_folder: str = "result") -> Tuple[str, str]:

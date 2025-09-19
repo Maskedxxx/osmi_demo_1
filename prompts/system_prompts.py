@@ -22,7 +22,7 @@ DEFECT IDENTIFICATION RULE:
 
 EXTRACTION PROCESS:
 - Within each section, find ALL fragments with technical references
-- Each normative reference = separate entry in the result
+- IMPORTANT Each normative reference = separate entry in the result
 - If a defect has nested details/specifics - include them in the defect description, do NOT create separate entry
 </extraction_rules>
 

@@ -23,7 +23,7 @@ dp.message.register(handle_upload_document, F.text == "Загрузить док
 
 async def defect_analysis_wrapper(message):
     """Запускает полный анализ дефектов для ссылок Google Drive."""
-    return await handle_full_defect_analysis(message, bot)
+    return await handle_full_defect_analysis(message)
 
 
 # Обрабатываем только текстовые сообщения со ссылкой Google Drive

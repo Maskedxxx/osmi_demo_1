@@ -1,11 +1,14 @@
 import base64
 import logging
+
+import time
 from io import BytesIO
 from pathlib import Path
 from typing import List
 
 from pdf2image import convert_from_path
 from openai import OpenAI
+import openai
 
 from config import OPENAI_API_KEY, VLM_MODEL
 from prompts import VLM_CLEAN_PROMPT
@@ -18,7 +21,7 @@ class VLMPageCleaner:
     """Сервис для очистки и структурирования страниц PDF через Vision Language Model."""
     
     def __init__(self, openai_api_key: str = OPENAI_API_KEY):
-        self.client = OpenAI(api_key=openai_api_key)
+        self.client = OpenAI(api_key=openai_api_key, timeout=180.0)
         self.model = VLM_MODEL
         self.clean_prompt_template = VLM_CLEAN_PROMPT
     
@@ -48,25 +51,37 @@ class VLMPageCleaner:
     
     def clean_page_with_vlm(self, image_base64: str, page_number: int) -> str:
         """Отправляет изображение страницы в VLM для очистки текста."""
-        try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"{self.clean_prompt_template}\nСтраница: {page_number}."},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
-                    ],
-                }],
-            )
-            
-            cleaned_text = response.choices[0].message.content.strip()
-            logger.info(f"Страница {page_number} обработана VLM")
-            return cleaned_text
-            
-        except Exception as e:
-            logger.error(f"Ошибка VLM обработки страницы {page_number}: {e}")
-            raise
+        max_retries = 3
+        retry_delay = 1
+        
+        for attempt in range(max_retries):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": f"{self.clean_prompt_template}\nСтраница: {page_number}."},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                        ],
+                    }],
+                )
+                
+                cleaned_text = response.choices[0].message.content.strip()
+                logger.info(f"Страница {page_number} обработана VLM (попытка {attempt + 1})")
+                return cleaned_text
+                
+            except (openai.APIConnectionError, ConnectionError) as e:
+                if attempt < max_retries - 1:
+                    logger.warning(f"Сетевая ошибка на странице {page_number}, попытка {attempt + 1}/{max_retries}: {e}")
+                    time.sleep(retry_delay * (attempt + 1))
+                    continue
+                else:
+                    logger.error(f"Все попытки исчерпаны для страницы {page_number}: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Ошибка VLM обработки страницы {page_number}: {e}")
+                raise
     
     def process_pages(self, pdf_path: Path, page_numbers: List[int]) -> VLMCleaningResult:
         """Обрабатывает список страниц PDF через VLM."""
