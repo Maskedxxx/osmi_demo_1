@@ -5,4 +5,6 @@ __pycache__
 result/
 tests/
 analysis/
-CLAUDE.md
+data/input/
+legacy/
+*.code-workspace
