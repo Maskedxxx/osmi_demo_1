@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from semantic_router import Route
 from semantic_router.encoders import OpenAIEncoder
-from semantic_router.routers import SemanticRouter
+from semantic_router.layer import RouteLayer as SemanticRouter
 
 from models import DocumentData
 from config import logger, OPENAI_API_KEY, SEMANTIC_SCORE_THRESHOLD, SEMANTIC_TOP_PAGES_LIMIT
@@ -59,7 +59,6 @@ class SemanticPageFilter:
             # Создаем маршрут для проблем
             problems_route = Route(
                 name="problems",
-                score_threshold=self.score_threshold,
                 utterances=self.utterances
             )
             
@@ -67,8 +66,7 @@ class SemanticPageFilter:
             encoder = OpenAIEncoder()
             self.router = SemanticRouter(
                 encoder=encoder, 
-                routes=[problems_route], 
-                auto_sync="local"
+                routes=[problems_route]
             )
             
             logger.info(f"Семантический роутер настроен с порогом схожести: {self.score_threshold}")
@@ -114,19 +112,30 @@ class SemanticPageFilter:
                         continue
                     
                     # Анализируем текст страницы
-                    router_result = self.router(page.full_text, limit=1)
+                    # Используем retrieve_multiple_routes чтобы гарантированно получить similarity_score
+                    router_results = self.router.retrieve_multiple_routes(page.full_text)
                     
                     # Обрабатываем результат
-                    if isinstance(router_result, list) and len(router_result) > 0:
-                        similarity = router_result[0].similarity_score or 0.0
-                        route_name = router_result[0].name
-                    elif hasattr(router_result, 'similarity_score'):
-                        similarity = router_result.similarity_score or 0.0
-                        route_name = router_result.name if hasattr(router_result, 'name') else 'unknown'
+                    if router_results and len(router_results) > 0:
+                        # Берем лучший результат
+                        top_result = router_results[0]
+                        raw_score = top_result.similarity_score or 0.0
+                        
+                        # ПРИМЕНЯЕМ ПОРОГ: Если оценка ниже порога, сбрасываем маршрут
+                        if raw_score >= self.score_threshold:
+                            route_name = top_result.name
+                            similarity = raw_score
+                        else:
+                            route_name = 'None' # Ниже порога -> маршрут не выбран
+                            similarity = raw_score
                     else:
-                        similarity = 0.0
                         route_name = 'unknown'
+                        similarity = 0.0
                     
+                    # Защита от None (на всякий случай, хотя retrieve_multiple_routes должен возвращать score)
+                    if similarity is None:
+                         similarity = 0.0
+
                     # Создаем результат анализа
                     analysis_result = PageAnalysisResult(
                         page_number=page.page_number,
