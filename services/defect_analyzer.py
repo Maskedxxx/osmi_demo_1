@@ -12,7 +12,7 @@ import pandas as pd
 
 from models import DocumentData, DefectAnalysisResult, DefectAnalysisListResult, VLMCleaningResult
 from services.llm_usage_tracker import log_chat_completion_usage
-from config import logger, OPENAI_API_KEY
+from config import logger, OPENAI_API_KEY, ANALYSIS_MODEL
 from prompts import EXPERT_DEFECT_ANALYSIS_PROMPT
 
 
@@ -63,7 +63,6 @@ class DefectAnalyzer:
         self.last_usage = None
 
         try:
-            model_name = "gpt-4.1-2025-04-14"
             messages = [
                 {
                     "role": "system",
@@ -80,12 +79,12 @@ class DefectAnalyzer:
             ]
 
             completion = self.client.chat.completions.parse(
-                model=model_name,
+                model=ANALYSIS_MODEL,
                 messages=messages,
                 response_format=DefectAnalysisListResult,
             )
 
-            self.last_usage = log_chat_completion_usage(model_name, messages, completion, logger)
+            self.last_usage = log_chat_completion_usage(ANALYSIS_MODEL, messages, completion, logger)
 
             result = completion.choices[0].message.parsed
             
